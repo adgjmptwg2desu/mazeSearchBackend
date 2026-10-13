@@ -1,0 +1,1 @@
+"""Maze search backend package."""
