@@ -27,6 +27,10 @@ def test_search_endpoint_returns_frontend_search_tree_shape():
     assert body["found"] is True
     assert body["state"]["pathNodeIds"] == ["0,0", "1,0"]
     assert body["state"]["nodes"][1]["parentId"] == "0,0"
+    assert body["expandedNodeCount"] == 1
+    assert body["expandedNodeCount"] == sum(
+        step["action"] == "expand" for step in body["steps"]
+    )
 
 
 def test_search_endpoint_rejects_wall_start():
@@ -40,3 +44,26 @@ def test_search_endpoint_rejects_wall_start():
     )
 
     assert response.status_code == 422
+
+
+def test_search_endpoint_accepts_depth_first_algorithm():
+    response = client.post(
+        "/api/search?algorithm=dfs",
+        json={
+            "cells": [
+                ["start", "path", "goal"],
+                ["path", "path", "path"],
+                ["path", "path", "path"],
+            ],
+            "startPosition": {"x": 0, "y": 0},
+            "goalPosition": {"x": 2, "y": 0},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["found"] is True
+    assert len(body["state"]["pathNodeIds"]) > 3
+    assert body["expandedNodeCount"] == sum(
+        step["action"] == "expand" for step in body["steps"]
+    )

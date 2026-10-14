@@ -1,6 +1,14 @@
 import networkx as nx
+from collections import deque
 
-from .schemas import MazeRequest, Position, SearchResponse, SearchTreeNode, SearchTreeState
+from .schemas import (
+    MazeRequest,
+    Position,
+    SearchResponse,
+    SearchStep,
+    SearchTreeNode,
+    SearchTreeState,
+)
 
 
 def _node_id(position: tuple[int, int]) -> str:
@@ -8,8 +16,7 @@ def _node_id(position: tuple[int, int]) -> str:
     return f"{column},{row}"
 
 
-def build_bfs_search(maze: MazeRequest) -> SearchResponse:
-    """Build a BFS search tree and shortest path for a maze."""
+def _build_search(maze: MazeRequest, depth_first: bool) -> SearchResponse:
     height = len(maze.cells)
     width = len(maze.cells[0])
     graph = nx.grid_2d_graph(height, width)
@@ -23,21 +30,71 @@ def build_bfs_search(maze: MazeRequest) -> SearchResponse:
 
     start = (maze.startPosition.y, maze.startPosition.x)
     goal = (maze.goalPosition.y, maze.goalPosition.x)
-    tree = nx.bfs_tree(graph, source=start)
-    traversal_order = list(tree.nodes)
-    found = goal in tree
+    traversal_order = [start]
+    visited = {start}
+    parent_by_node: dict[
+        tuple[int, int], tuple[int, int] | None
+    ] = {start: None}
+    depth_by_node = {start: 0}
+    steps: list[SearchStep] = []
+    expanded_node_count = 0
+    found = False
 
-    if found:
-        traversal_order = traversal_order[: traversal_order.index(goal) + 1]
+    if depth_first:
+        if start == goal:
+            found = True
+            steps.append(SearchStep(action="goal", nodeId=_node_id(start)))
+        else:
+            expanded_node_count += 1
+            steps.append(SearchStep(action="expand", nodeId=_node_id(start)))
+            stack = [(start, iter(graph.neighbors(start)))]
 
-    included_nodes = set(traversal_order)
-    parent_by_node = {
-        node: next(tree.predecessors(node), None)
-        for node in traversal_order
-    }
-    depth_by_node: dict[tuple[int, int], int] = {start: 0}
+            while stack:
+                node, neighbors = stack[-1]
+                child = next((neighbor for neighbor in neighbors if neighbor not in visited), None)
+
+                if child is None:
+                    stack.pop()
+                    if stack:
+                        steps.append(
+                            SearchStep(action="backtrack", nodeId=_node_id(stack[-1][0]))
+                        )
+                    continue
+
+                visited.add(child)
+                traversal_order.append(child)
+                parent_by_node[child] = node
+                depth_by_node[child] = depth_by_node[node] + 1
+
+                if child == goal:
+                    found = True
+                    steps.append(SearchStep(action="goal", nodeId=_node_id(child)))
+                    break
+
+                expanded_node_count += 1
+                steps.append(SearchStep(action="expand", nodeId=_node_id(child)))
+                stack.append((child, iter(graph.neighbors(child))))
+    else:
+        queue = deque([start])
+        while queue:
+            node = queue.popleft()
+            if node == goal:
+                found = True
+                steps.append(SearchStep(action="goal", nodeId=_node_id(node)))
+                break
+
+            expanded_node_count += 1
+            steps.append(SearchStep(action="expand", nodeId=_node_id(node)))
+            for child in graph.neighbors(node):
+                if child in visited:
+                    continue
+                visited.add(child)
+                traversal_order.append(child)
+                parent_by_node[child] = node
+                depth_by_node[child] = depth_by_node[node] + 1
+                queue.append(child)
+
     nodes = []
-
     for node in traversal_order:
         row, column = node
         parent = parent_by_node[node]
@@ -59,13 +116,13 @@ def build_bfs_search(maze: MazeRequest) -> SearchResponse:
             )
         )
 
-        for child in tree.successors(node):
-            if child in included_nodes and child not in depth_by_node:
-                depth_by_node[child] = depth + 1
-
-    path_positions = (
-        nx.shortest_path(tree, source=start, target=goal) if found else []
-    )
+    path_positions = []
+    if found:
+        current = goal
+        while current is not None:
+            path_positions.append(current)
+            current = parent_by_node[current]
+        path_positions.reverse()
     path_ids = [_node_id(position) for position in path_positions]
     path_id_set = set(path_ids)
 
@@ -74,9 +131,21 @@ def build_bfs_search(maze: MazeRequest) -> SearchResponse:
 
     return SearchResponse(
         found=found,
+        expandedNodeCount=expanded_node_count,
+        steps=steps,
         state=SearchTreeState(
             nodes=nodes,
             activeNodeIds=[_node_id(position) for position in traversal_order],
             pathNodeIds=path_ids,
         ),
     )
+
+
+def build_bfs_search(maze: MazeRequest) -> SearchResponse:
+    """Build a breadth-first search tree and shortest path for a maze."""
+    return _build_search(maze, depth_first=False)
+
+
+def build_dfs_search(maze: MazeRequest) -> SearchResponse:
+    """Build a depth-first search tree and the path found by DFS."""
+    return _build_search(maze, depth_first=True)

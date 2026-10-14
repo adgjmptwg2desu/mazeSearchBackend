@@ -1,8 +1,10 @@
+from typing import Literal
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas import MazeRequest, SearchResponse
-from .search import build_bfs_search
+from .search import build_bfs_search, build_dfs_search
 
 app = FastAPI(title="Maze Search API", version="0.1.0")
 
@@ -24,5 +26,9 @@ def health_check() -> dict[str, str]:
 
 
 @app.post("/api/search", response_model=SearchResponse)
-def search_maze(maze: MazeRequest) -> SearchResponse:
-    return build_bfs_search(maze)
+def search_maze(
+    maze: MazeRequest,
+    algorithm: Literal["bfs", "dfs"] = "bfs",
+) -> SearchResponse:
+    search = build_dfs_search if algorithm == "dfs" else build_bfs_search
+    return search(maze)

@@ -50,6 +50,13 @@ class SearchTreeState(BaseModel):
     pathNodeIds: list[str]
 
 
+class SearchStep(BaseModel):
+    action: Literal["expand", "backtrack", "goal"]
+    nodeId: str
+
+
 class SearchResponse(BaseModel):
     found: bool
+    expandedNodeCount: int
     state: SearchTreeState
+    steps: list[SearchStep]
